@@ -4,14 +4,14 @@
   "description": "Read DeepSeek Harness replies out loud with MiniMax voices: a per-message speaker button plus optional auto-read · DeepSeek Harness 的 MiniMax 朗读插件：每条回复一个喇叭按钮，可自动朗读",
   "type": "module",
   "license": "MIT",
-  "author": "sorooy",
-  "homepage": "https://gitee.com/shi_zhong_yu/dsh-minimax-autoread#readme",
+  "author": "时时",
+  "homepage": "https://gitee.com/op00007/dsh-minimax-autoread#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://gitee.com/shi_zhong_yu/dsh-minimax-autoread.git"
+    "url": "git+https://gitee.com/op00007/dsh-minimax-autoread.git"
   },
   "bugs": {
-    "url": "https://gitee.com/shi_zhong_yu/dsh-minimax-autoread/issues"
+    "url": "https://gitee.com/op00007/dsh-minimax-autoread/issues"
   },
   "keywords": [
     "deepseek-harness",

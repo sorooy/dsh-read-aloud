@@ -46,7 +46,7 @@ dsh plugin --profile desktop add dsh-minimax-autoread --registry=https://registr
 从 Gitee 源码装：
 
 ```bash
-git clone https://gitee.com/shi_zhong_yu/dsh-minimax-autoread.git
+git clone https://gitee.com/op00007/dsh-minimax-autoread.git
 dsh plugin --profile desktop add ./dsh-minimax-autoread
 ```
 
