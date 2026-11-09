@@ -39,18 +39,14 @@ Without that plugin the button reports an error instead of failing silently.
 
 ## Install
 
-```bash
-dsh plugin --profile desktop add dsh-minimax-autoread --registry=https://registry.npmjs.org/
-```
-
-From Gitee:
+**Source install only for now** — the package is not on npm yet, so the `dsh plugin add` npm form will not work.
 
 ```bash
 git clone https://gitee.com/op00007/dsh-minimax-autoread.git
 dsh plugin --profile desktop add ./dsh-minimax-autoread
 ```
 
-From a local checkout:
+Already have a local copy:
 
 ```bash
 dsh plugin --profile desktop add /absolute/path/to/dsh-minimax-autoread

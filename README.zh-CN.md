@@ -39,18 +39,14 @@ GET  /mmvoice/api/output/:file                               ->  mp3
 
 ## 安装
 
-```bash
-dsh plugin --profile desktop add dsh-minimax-autoread --registry=https://registry.npmjs.org/
-```
-
-从 Gitee 源码装：
+目前**只提供源码安装**，npm 上还没有发布（`dsh plugin add` 的 npm 形式现在跑不通）。
 
 ```bash
 git clone https://gitee.com/op00007/dsh-minimax-autoread.git
 dsh plugin --profile desktop add ./dsh-minimax-autoread
 ```
 
-从本地源码装：
+已经有一份本地副本：
 
 ```bash
 dsh plugin --profile desktop add /绝对路径/dsh-minimax-autoread
