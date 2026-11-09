@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="dsh-minimax-autoread">
+  <rect width="64" height="64" rx="14" fill="#0f766e"/>
+  <path d="M23 27h6.5l9-7.5v25l-9-7.5H23a2.5 2.5 0 0 1-2.5-2.5v-5A2.5 2.5 0 0 1 23 27z" fill="#ffffff"/>
+  <path d="M44 25.5a10 10 0 0 1 0 13" fill="none" stroke="#ffffff" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M49.5 20a17 17 0 0 1 0 24" fill="none" stroke="#ffffff" stroke-width="3.4" stroke-linecap="round" opacity="0.62"/>
+</svg>

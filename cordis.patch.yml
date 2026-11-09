@@ -1,0 +1,4 @@
+- insert:
+    - id: minimax-autoread
+      name: 'dsh-minimax-autoread'
+      config: {}
