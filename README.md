@@ -12,7 +12,7 @@ English | [简体中文](README.zh-CN.md)
 
 DeepSeek Harness ships no speech synthesis at all. The community plugin [`dsh-minimax-voice`](https://www.npmjs.com/package/dsh-minimax-voice) brings MiniMax cloning, TTS and ASR — but its playback lives in agent tools and a settings panel, with no "click a reply and hear it".
 
-This plugin is the thin layer that connects a message action button to the synthesis surface `dsh-minimax-voice` already exposes. **The key, the voice library and the billing stay in that plugin**; there is not a single line of MiniMax code here.
+This plugin is the thin layer that connects a message action button to existing synthesis. With [`dsh-minimax-voice`](https://www.npmjs.com/package/dsh-minimax-voice) installed it reuses that plugin's key, voice library and billing; without it, the built-in standalone mode talks to MiniMax directly — one pasted API key and it runs.
 
 ## Features
 
@@ -26,16 +26,28 @@ This plugin is the thin layer that connects a message action button to the synth
 
 ## Requirements
 
-Install and enable [`dsh-minimax-voice`](https://www.npmjs.com/package/dsh-minimax-voice) first, and put a MiniMax API key in its **Settings → MiniMax Voice** panel.
+Either of:
 
-This plugin talks to its local HTTP surface:
+- **Recommended**: install [`dsh-minimax-voice`](https://www.npmjs.com/package/dsh-minimax-voice) and put a MiniMax API key in its **Settings → MiniMax Voice** panel. The key, cloned voices and billing stay there; this plugin calls its local surface:
 
-```
-POST /mmvoice/api/tts      { text, voiceId, model, speed }  ->  { path, durationMs, characters }
-GET  /mmvoice/api/output/:file                               ->  mp3
-```
+  ```
+  POST /mmvoice/api/tts      { text, voiceId, model, speed }  ->  { path, durationMs, characters }
+  GET  /mmvoice/api/output/:file                               ->  mp3
+  ```
 
-Without that plugin the button reports an error instead of failing silently.
+- **Standalone mode**: the plugin's host half registers `/minimax-autoread/api/*` on the Harness web server and calls MiniMax directly. Key priority:
+
+  1. `config.apiKey` in the plugin configuration
+  2. the `MINIMAX_API_KEY` environment variable (restart the Harness after setting it)
+  3. saved from the settings panel (**plain text** at `~/.dsh/minimax-autoread/secret.json`)
+
+  ```
+  POST /minimax-autoread/api/key    { key }                          ->  { configured }
+  POST /minimax-autoread/api/tts    { text, voiceId, model, speed }  ->  { path, file, durationMs, characters }
+  GET  /minimax-autoread/api/output/:file                            ->  mp3
+  ```
+
+The client probes both backends at startup and prefers `dsh-minimax-voice`. With neither configured, the button reports an error instead of failing silently.
 
 ## Install
 
@@ -95,9 +107,10 @@ Stored in the browser's `localStorage` under `dsh.minimax-autoread.settings`. No
 
 Design notes:
 
-- **The host half is empty.** `index.js` only declares the plugin; everything happens in the browser, so "the host cannot play audio" never becomes a problem.
+- **The host half is a fallback only.** When `dsh-minimax-voice` is present its routes carry all traffic; the standalone route stays idle.
 - **Prose is cached by `messageId`.** The action slot hands over an id only, so the button has to learn what that message said. The event stream is the only reliable source.
 - **Replay is not speech.** Page load replays history; the first pump runs with `synced` still `false`, so it fills the cache without talking.
+- **Replay is free.** Synthesized audio is cached in memory per message id; a second click plays the file instead of re-billing.
 - **No DOM fallback.** When the prose is missing the button reports it. An early version scraped the nearest `[data-message-bubble]` element — that attribute marks the *user* bubble, so the fallback would have read your own message back to you.
 - **Only `text` blocks are spoken.** Reasoning, code and tool calls stay silent.
 
@@ -110,11 +123,12 @@ Design notes:
 
 ## Known limitations
 
-- **Hard dependency on `dsh-minimax-voice`** routes and response shape.
+- **Standalone voice suggestions are hardcoded** common system voices; cloned voices are only available through `dsh-minimax-voice`.
 - **Prose comes from the event stream.** A message whose events are not in the current stream (older paged-out history, for example) will not be read; the tooltip says the text is not cached yet.
 - **Browser autoplay policy.** The first playback needs a prior user interaction on the page; if blocked, the failure shows in the tooltip.
 - **Single playback, no queue.** Replies are not chained.
 - **Truncated at 8000 characters** (MiniMax accepts 10000 per call).
+- **The replay cache is memory only.** After a page reload, replaying the same message synthesizes again and bills again.
 
 ## Development
 

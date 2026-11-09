@@ -4,18 +4,21 @@
  * Two surfaces, one engine:
  *
  *  - A speaker button in each Assistant reply's action strip
- *    (`conversation.chat.assistant-actions`), so the button always belongs to the
- *    message you clicked: click to read, click while reading to stop, click again
- *    to read it once more.
+ *    (`conversation.chat.assistant-actions`): click to read, click while
+ *    reading to stop, click again to replay.
  *  - An optional auto-read switch in Settings that speaks the end of each turn.
  *
- * Text comes from the Session's event stream: every durable `assistant/message`
- * is remembered under its message id, which is what the slot hands us. Messages
- * that predate the page load are not in that cache, so the button falls back to
- * the rendered bubble next to it.
+ * Synthesis routes, probed automatically:
  *
- * Synthesis is delegated to `dsh-minimax-voice` (`POST /mmvoice/api/tts`); the
- * key, the voice catalog and the billing stay owned by that plugin.
+ *  1. `dsh-minimax-voice` (`/mmvoice/api/tts`) when that plugin is installed —
+ *     it owns the key, the cloned voices and the billing.
+ *  2. Standalone mode (`/minimax-autoread/api/tts`) otherwise — the host half
+ *     calls MiniMax directly with a key from settings / env / config.
+ *
+ * Text comes from the Session's event stream: every durable `assistant/message`
+ * is remembered under its message id, which is what the slot hands us.
+ * Replaying a message reuses the cached audio file instead of paying for a
+ * second synthesis.
  */
 
 window.__ModuleLoader__.load({
@@ -25,8 +28,10 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const { useCallback, useEffect, useRef, useState } = React
 
-    /** HTTP surface owned by dsh-minimax-voice. */
-    const API = '/mmvoice/api'
+    /** HTTP surface of the dsh-minimax-voice plugin. */
+    const VOICE_API = '/mmvoice/api'
+    /** Standalone HTTP surface of this plugin's host half. */
+    const DIRECT_API = '/minimax-autoread/api'
     /** localStorage key for the browser-local preferences. */
     const STORE_KEY = 'dsh.minimax-autoread.settings'
     /** Characters sent per request; MiniMax accepts 10000, stay well below. */
@@ -50,6 +55,18 @@ window.__ModuleLoader__.load({
       'speech-01-turbo',
     ]
 
+    /** Common MiniMax system voices, offered as suggestions only. */
+    const VOICE_SUGGESTIONS = [
+      'female-shaonv',
+      'female-yujie',
+      'female-chengshu',
+      'female-tianmei',
+      'male-qn-qingse',
+      'male-qn-jingying',
+      'male-qn-badao',
+      'audiobook_male_2',
+    ]
+
     /* ------------------------------------------------------------ preferences */
 
     function readSettings() {
@@ -65,8 +82,13 @@ window.__ModuleLoader__.load({
     let settings = readSettings()
     const settingsListeners = new Set()
 
+    /** Synthesis inputs whose change invalidates the replay cache. */
+    const SYNTH_KEYS = ['voiceId', 'model', 'speed']
+
     function writeSettings(patch) {
+      const changedSynth = SYNTH_KEYS.some((key) => key in patch && patch[key] !== settings[key])
       settings = { ...settings, ...patch }
+      if (changedSynth) replayCache.clear()
       try {
         window.localStorage.setItem(STORE_KEY, JSON.stringify(settings))
       } catch {
@@ -86,6 +108,75 @@ window.__ModuleLoader__.load({
         }
       }, [])
       return settings
+    }
+
+    /* ------------------------------------------------------------- routing */
+
+    /**
+     * Which synthesis backend to use: 'voice' (dsh-minimax-voice),
+     * 'direct' (standalone host route), or 'none'. Cached; re-probed on demand.
+     */
+    let route = null
+
+    async function detectRoute(force) {
+      if (route && !force) return route
+      try {
+        const response = await fetch(`${VOICE_API}/status`, { signal: AbortSignal.timeout(2500) })
+        if (response.ok) {
+          const payload = await response.json()
+          if (payload && payload.configured) {
+            route = 'voice'
+            return route
+          }
+        }
+      } catch {
+        /* plugin absent or host down */
+      }
+      try {
+        const response = await fetch(`${DIRECT_API}/status`, { signal: AbortSignal.timeout(2500) })
+        if (response.ok) {
+          const payload = await response.json()
+          if (payload && payload.configured) {
+            route = 'direct'
+            return route
+          }
+        }
+      } catch {
+        /* standalone host half not loaded */
+      }
+      route = 'none'
+      return route
+    }
+
+    /** POST one synthesis request against the active route. */
+    async function synthesize(body) {
+      const active = await detectRoute(false)
+      if (active === 'none') {
+        const error = new Error('还没有可用的语音后端：安装 dsh-minimax-voice，或在「MiniMax 自动朗读」设置里填写 MiniMax API Key')
+        error.code = 'no-backend'
+        throw error
+      }
+      const base = active === 'voice' ? VOICE_API : DIRECT_API
+      const payload = active === 'voice'
+        ? { text: body.text, voiceId: body.voiceId, model: body.model, speed: body.speed }
+        : body
+      const response = await fetch(`${base}/tts`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (response.status === 404 && active === 'voice') {
+        // The voice plugin vanished mid-flight; re-probe and retry once.
+        route = null
+        const next = await detectRoute(true)
+        if (next === 'direct') return synthesize(body)
+      }
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '')
+        throw new Error(`HTTP ${response.status} ${detail.slice(0, 200)}`)
+      }
+      const result = await response.json()
+      return { ...result, route: active }
     }
 
     /* -------------------------------------------------------------------- text */
@@ -113,6 +204,9 @@ window.__ModuleLoader__.load({
       const index = Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\'))
       return index >= 0 ? value.slice(index + 1) : value
     }
+
+    /** messageId -> output file name, so replaying never re-bills. */
+    const replayCache = new Map()
 
     /* ------------------------------------------------------------------- reader */
 
@@ -190,14 +284,15 @@ window.__ModuleLoader__.load({
           const event = entry && entry.event
           if (!event) continue
 
+          // Keep only the newest Assistant prose of the turn: a multi-step turn
+          // emits one `assistant/message` per step, and reading every step out
+          // loud would talk over the tool calls between them.
           if (event.type === 'assistant/message') {
             const message = event.data && event.data.message
             if (!message) continue
             const id = typeof message.id === 'string' ? message.id : null
             const text = assistantText(message.content)
             if (id && text) this.texts.set(id, text)
-            // A multi-step turn emits one message per step; keep only the newest
-            // prose and speak it once, when the turn closes.
             if (live && text) {
               this.pendingId = id
               this.pendingText = text
@@ -205,6 +300,7 @@ window.__ModuleLoader__.load({
             continue
           }
 
+          // Speak once, when the turn closes.
           if (live && event.type === 'turn/end') {
             const id = this.pendingId
             const text = this.pendingText
@@ -224,7 +320,7 @@ window.__ModuleLoader__.load({
           return
         }
         const text = clamp(this.textFor(messageId))
-        if (!text) {
+        if (!text && !replayCache.has(messageId)) {
           this.error = '这条消息的正文还没缓存到，刷新页面后再试'
           this.emit()
           return
@@ -235,33 +331,34 @@ window.__ModuleLoader__.load({
       async speak(text, messageId) {
         this.stop()
         this.error = null
-        const body = {
-          text,
-          model: settings.model,
-          speed: typeof settings.speed === 'number' ? settings.speed : 1,
-        }
-        if (settings.voiceId) body.voiceId = settings.voiceId
-
         this.currentId = messageId
         this.playing = true
         this.emit()
 
         try {
-          const response = await fetch(`${API}/tts`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(body),
-          })
-          if (!response.ok) {
-            const detail = await response.text().catch(() => '')
-            throw new Error(`HTTP ${response.status} ${detail.slice(0, 200)}`)
+          let file = replayCache.get(messageId)
+          let characters = null
+          let durationMs = null
+
+          if (file) {
+            // Replay: the audio for this exact message was already synthesized.
+          } else {
+            if (!text) throw new Error('没有可朗读的正文')
+            const result = await synthesize({
+              text,
+              voiceId: settings.voiceId,
+              model: settings.model,
+              speed: typeof settings.speed === 'number' ? settings.speed : 1,
+            })
+            file = baseName(result.path) || result.file
+            characters = result.characters
+            durationMs = result.durationMs
+            if (messageId && file) replayCache.set(messageId, file)
           }
-          const payload = await response.json()
-          const file = baseName(payload && payload.path)
-          if (!file) throw new Error('没有返回音频路径')
           if (this.disposed) return
 
-          const audio = new Audio(`${API}/output/${encodeURIComponent(file)}`)
+          const base = route === 'direct' ? DIRECT_API : VOICE_API
+          const audio = new Audio(`${base}/output/${encodeURIComponent(file)}`)
           this.audio = audio
           audio.addEventListener('ended', () => this.finish(audio))
           audio.addEventListener('error', () => this.finish(audio))
@@ -408,36 +505,81 @@ window.__ModuleLoader__.load({
     }
     const rowStyle = { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }
 
+    const MODE_LABEL = {
+      voice: '走 dsh-minimax-voice（密钥与音色库由它管理）',
+      direct: '独立模式：由本插件直连 MiniMax',
+      none: '未配置：安装 dsh-minimax-voice，或在下方填写 MiniMax API Key',
+    }
+
     function Settings() {
       const current = useSettings()
       const [voiceId, setVoiceId] = useState(current.voiceId)
+      const [apiKey, setApiKey] = useState('')
+      const [mode, setMode] = useState(null)
+      const [directStatus, setDirectStatus] = useState(null)
       const [testing, setTesting] = useState(false)
       const [notice, setNotice] = useState(null)
       const [error, setError] = useState(null)
       const audioRef = useRef(null)
 
+      useEffect(() => {
+        let alive = true
+        ;(async () => {
+          const active = await detectRoute(true)
+          if (!alive) return
+          setMode(active)
+          if (active === 'direct' || active === 'none') {
+            try {
+              const response = await fetch(`${DIRECT_API}/status`, { signal: AbortSignal.timeout(2500) })
+              if (response.ok) setDirectStatus(await response.json())
+            } catch {
+              /* host half not loaded */
+            }
+          }
+        })()
+        return () => {
+          alive = false
+        }
+      }, [])
+
       const save = useCallback((patch) => {
         writeSettings(patch)
       }, [])
+
+      const saveKey = useCallback(async () => {
+        setNotice(null)
+        setError(null)
+        try {
+          const response = await fetch(`${DIRECT_API}/key`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ key: apiKey.trim() }),
+          })
+          const payload = await response.json().catch(() => ({}))
+          if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`)
+          setApiKey('')
+          route = null
+          const active = await detectRoute(true)
+          setMode(active)
+          setDirectStatus((status) => ({ ...(status || {}), configured: true, keySource: 'file' }))
+          setNotice(active === 'direct' ? '密钥已保存，独立模式可用' : '密钥已保存（当前语音仍走 dsh-minimax-voice）')
+        } catch (failure) {
+          setError(failure && failure.message ? failure.message : String(failure))
+        }
+      }, [apiKey])
 
       const preview = useCallback(async () => {
         setTesting(true)
         setError(null)
         setNotice(null)
         try {
-          const response = await fetch(`${API}/tts`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              text: '这是一段试听，用来确认自动朗读的音色和语速。',
-              model: current.model,
-              speed: current.speed,
-              ...(current.voiceId ? { voiceId: current.voiceId } : {}),
-            }),
+          const result = await synthesize({
+            text: '这是一段试听，用来确认自动朗读的音色和语速。',
+            voiceId: current.voiceId,
+            model: current.model,
+            speed: current.speed,
           })
-          if (!response.ok) throw new Error(`HTTP ${response.status}`)
-          const payload = await response.json()
-          const file = baseName(payload && payload.path)
+          const file = baseName(result.path) || result.file
           if (!file) throw new Error('没有返回音频路径')
           if (audioRef.current) {
             try {
@@ -446,10 +588,15 @@ window.__ModuleLoader__.load({
               /* ignore */
             }
           }
-          const audio = new Audio(`${API}/output/${encodeURIComponent(file)}`)
+          const base = result.route === 'direct' ? DIRECT_API : VOICE_API
+          const audio = new Audio(`${base}/output/${encodeURIComponent(file)}`)
           audioRef.current = audio
           await audio.play()
-          setNotice(`已合成 ${((payload.durationMs || 0) / 1000).toFixed(1)} 秒，计费 ${payload.characters || 0} 字符`)
+          setNotice(
+            `已合成 ${((result.durationMs || 0) / 1000).toFixed(1)} 秒`
+            + (result.characters ? `，计费 ${result.characters} 字符` : '')
+            + `（${result.route === 'direct' ? '独立模式' : 'dsh-minimax-voice'}）`,
+          )
         } catch (failure) {
           setError(failure && failure.message ? failure.message : String(failure))
         } finally {
@@ -467,7 +614,7 @@ window.__ModuleLoader__.load({
           h(
             'p',
             { style: { ...hintStyle, margin: 0 } },
-            '助手回复下方的动作栏里有一个 🔊：点一次读这条，读的时候再点停止，停了再点重读。',
+            '助手回复下方的动作栏里有一个 🔊：点一次读这条，读的时候再点停止，停了再点重读（重读不重新计费）。',
           ),
           h(
             'label',
@@ -490,10 +637,16 @@ window.__ModuleLoader__.load({
             h('input', {
               style: inputStyle,
               value: voiceId,
+              list: 'minimax-autoread-voices',
               placeholder: '音色 ID，例如 female-shaonv',
               onChange: (event) => setVoiceId(event.target.value),
               onBlur: () => save({ voiceId: voiceId.trim() }),
             }),
+            h(
+              'datalist',
+              { id: 'minimax-autoread-voices' },
+              VOICE_SUGGESTIONS.map((voice) => h('option', { key: voice, value: voice })),
+            ),
             h(
               'select',
               {
@@ -520,10 +673,33 @@ window.__ModuleLoader__.load({
           h(
             'p',
             { style: hintStyle },
-            '音色 ID 可以是 MiniMax 系统音色（如 female-shaonv、male-qn-qingse），也可以是你在「设置 → MiniMax 音色」里复刻出来的 voice_id。密钥和音色库都由那个插件管理。',
+            `当前后端：${mode === null ? '检测中…' : MODE_LABEL[mode] || mode}`
+            + (directStatus && directStatus.keySource ? ` · Key 来源：${directStatus.keySource}` : ''),
           ),
           notice ? h('p', { style: { ...hintStyle, color: 'var(--dsw-alias-state-success-primary)' } }, notice) : null,
           error ? h('p', { style: { ...hintStyle, color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
+        ),
+        h(
+          'div',
+          { style: cardStyle },
+          h('div', { style: { fontSize: 13, fontWeight: 600, margin: '0 0 10px' } }, 'MiniMax API Key（独立模式）'),
+          h(
+            'div',
+            { style: rowStyle },
+            h('input', {
+              style: { ...inputStyle, flex: '1 1 260px' },
+              type: 'password',
+              value: apiKey,
+              placeholder: directStatus && directStatus.configured ? '已配置（输入新值可覆盖）' : '粘贴 MiniMax API Key',
+              onChange: (event) => setApiKey(event.target.value),
+            }),
+            h('button', { type: 'button', style: buttonStyle, onClick: saveKey, disabled: !apiKey.trim() }, '保存'),
+          ),
+          h(
+            'p',
+            { style: hintStyle },
+            '只有没有安装 dsh-minimax-voice 时才需要在这里填 Key。优先级：插件配置 > 环境变量 MINIMAX_API_KEY > 此处保存（明文存于 ~/.dsh/minimax-autoread/secret.json）。',
+          ),
         ),
       )
     }
