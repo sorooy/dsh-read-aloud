@@ -5,13 +5,13 @@
   "type": "module",
   "license": "MIT",
   "author": "sorooy",
-  "homepage": "https://github.com/sorooy/dsh-minimax-autoread#readme",
+  "homepage": "https://gitee.com/shi_zhong_yu/dsh-minimax-autoread#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sorooy/dsh-minimax-autoread.git"
+    "url": "git+https://gitee.com/shi_zhong_yu/dsh-minimax-autoread.git"
   },
   "bugs": {
-    "url": "https://github.com/sorooy/dsh-minimax-autoread/issues"
+    "url": "https://gitee.com/shi_zhong_yu/dsh-minimax-autoread/issues"
   },
   "keywords": [
     "deepseek-harness",

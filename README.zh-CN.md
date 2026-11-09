@@ -43,6 +43,13 @@ GET  /mmvoice/api/output/:file                               ->  mp3
 dsh plugin --profile desktop add dsh-minimax-autoread --registry=https://registry.npmjs.org/
 ```
 
+从 Gitee 源码装：
+
+```bash
+git clone https://gitee.com/shi_zhong_yu/dsh-minimax-autoread.git
+dsh plugin --profile desktop add ./dsh-minimax-autoread
+```
+
 从本地源码装：
 
 ```bash

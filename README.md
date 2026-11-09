@@ -43,6 +43,13 @@ Without that plugin the button reports an error instead of failing silently.
 dsh plugin --profile desktop add dsh-minimax-autoread --registry=https://registry.npmjs.org/
 ```
 
+From Gitee:
+
+```bash
+git clone https://gitee.com/shi_zhong_yu/dsh-minimax-autoread.git
+dsh plugin --profile desktop add ./dsh-minimax-autoread
+```
+
 From a local checkout:
 
 ```bash
