@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1 — 2026-11-10
+
+修复「点击朗读无响应」：客户端不再直接调用 `dsh-minimax-voice` 的 HTTP 路由。那个路由把请求交给 DSH `connection` 的信任校验，对普通浏览器 `fetch` 返回 401，客户端于是判定“没有后端”并静默失败。
+
+- 客户端只访问本插件宿主路由 `/minimax-autoread/api/*`；由宿主解析真实后端。
+- 宿主优先调用 `minimaxVoice` Cordis 服务（同进程，免鉴权，仍复用它的密钥/音色/计费），服务不存在时才直连 MiniMax。
+- 合成的音频统一拷贝到本插件自己的输出目录，URL 保持稳定。
+- 失败不再静默：按钮显示 ⚠️，`title` 里是具体错误（HTTP 状态 / 后端提示）。
+- 设置面板显示真实后端（`voice-service` / `direct` / `none`）与 Key 来源。
+
 ## 0.2.0 — 2026-11-09
 
 - **独立模式**：不再强依赖 dsh-minimax-voice。未安装它时，宿主半边在 `/minimax-autoread/api/*` 注册本地路由直连 MiniMax；密钥优先级为插件配置 `config.apiKey` → 环境变量 `MINIMAX_API_KEY` → 设置面板保存（`~/.dsh/minimax-autoread/secret.json`）。

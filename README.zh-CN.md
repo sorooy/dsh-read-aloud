@@ -29,26 +29,25 @@ DeepSeek Harness 本身**没有**语音合成能力——组件文档写得很�
 
 二选一：
 
-- **推荐**：安装并启用 [`dsh-minimax-voice`](https://www.npmjs.com/package/dsh-minimax-voice)，在它的 **设置 → MiniMax 音色** 里填好 API Key。密钥、复刻音色库、计费全由它管理，本插件只调用它的本地接口：
-
-  ```
-  POST /mmvoice/api/tts      { text, voiceId, model, speed }  ->  { path, durationMs, characters }
-  GET  /mmvoice/api/output/:file                               ->  mp3
-  ```
-
-- **独立模式**：不装它也行。本插件宿主半边会在 Harness Web 服务的 `/minimax-autoread/api/*` 上注册自己的路由，直连 MiniMax。Key 的优先级：
+- **推荐**：安装并启用 [`dsh-minimax-voice`](https://www.npmjs.com/package/dsh-minimax-voice)。本插件宿主直接调用它的 `minimaxVoice` 服务（同进程，不走 HTTP），密钥、复刻音色库、计费仍由它管理。
+- **独立模式**：不装它也行。宿主自己直连 MiniMax，Key 优先级：
 
   1. 插件配置里的 `config.apiKey`
   2. 环境变量 `MINIMAX_API_KEY`（设置后需重启 Harness）
   3. 设置面板「MiniMax API Key（独立模式）」里保存（**明文**存于 `~/.dsh/minimax-autoread/secret.json`）
 
-  ```
-  POST /minimax-autoread/api/key    { key }                          ->  { configured }
-  POST /minimax-autoread/api/tts    { text, voiceId, model, speed }  ->  { path, file, durationMs, characters }
-  GET  /minimax-autoread/api/output/:file                            ->  mp3
-  ```
+浏览器端**只访问本插件自己的路由**，后端是什么与它无关：
 
-两个后端都没有时，按钮会明确报错，不会静默失败。客户端启动时自动探测，优先走 `dsh-minimax-voice`。
+```
+GET  /minimax-autoread/api/status                                  ->  { configured, backend, keySource }
+POST /minimax-autoread/api/tts    { text, voiceId, model, speed }  ->  { path, file, durationMs, characters, backend }
+POST /minimax-autoread/api/key    { key }                          ->  { configured }
+GET  /minimax-autoread/api/output/:file                            ->  mp3
+```
+
+> **为什么不让浏览器直接调 `dsh-minimax-voice` 的 HTTP 路由？** 那条路由会把请求交给 DSH `connection` 的信任校验，对普通浏览器 `fetch` 返回 401。客户端于是误判"没有后端"并静默失败——0.2.1 修的就是这个。改成宿主内直接调服务后，鉴权、跨域、端口都不再是变量。
+
+两个后端都没有时，按钮会显示 ⚠️ 并在 `title` 里给出具体错误，不会静默失败。
 
 ## 安装
 
@@ -110,7 +109,7 @@ dsh plugin --profile desktop add /绝对路径/dsh-minimax-autoread
 
 几个关键决定：
 
-- **宿主半边只做兜底。** 装了 `dsh-minimax-voice` 时，`index.js` 注册的路由完全闲置，全部流量走对方的 `/mmvoice/api`；只有它缺席时独立模式才接管。
+- **宿主做后端解析，浏览器不碰鉴权。** 浏览器只调 `/minimax-autoread/api/*`；宿主优先用 `minimaxVoice` 服务，缺席才直连 MiniMax。合成的 mp3 统一拷进本插件输出目录，URL 稳定。
 - **正文按 `messageId` 缓存。** 动作栏槽只给 `messageId`，不给文本，所以按钮必须自己知道"这条消息说了什么"。订阅事件流是唯一可靠的来源。
 - **回放不等于朗读。** 页面加载会重放历史事件；第一次 `pump` 时 `synced` 还是 `false`，只填缓存不出声，避免刚刷新就自己念起来。
 - **重读免费。** 音频文件按 `messageId` 缓存在内存，第二次点击不再发起合成请求——MiniMax 按字符计费，重复合成就是重复扣钱。

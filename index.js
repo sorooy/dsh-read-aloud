@@ -1,15 +1,19 @@
 /**
  * Host half of dsh-minimax-autoread.
  *
- * Primary path needs nothing from this file: the browser client talks to the
- * `dsh-minimax-voice` HTTP surface, which owns the key, the voices and the
- * billing.
+ * The browser client only ever talks to this file's `/minimax-autoread/api/*`
+ * routes. Behind them there are two backends, resolved per request:
  *
- * The host exists for the standalone fallback: when `dsh-minimax-voice` is not
- * installed, it registers `/minimax-autoread/api/*` on the Harness web server
- * and talks to MiniMax directly, using a key resolved as
- * `config.apiKey` -> `MINIMAX_API_KEY` env -> `secret.json` (saved from the
- * settings panel).
+ *  1. The `minimaxVoice` Cordis service, when `dsh-minimax-voice` is installed.
+ *     Calling the service directly is what makes this reliable: that plugin's
+ *     own HTTP surface runs requests through the DSH `connection` trust check,
+ *     which answers 403/401 to plain browser fetches. The service needs no
+ *     transport at all, and still owns the key, the voices and the billing.
+ *  2. A direct MiniMax call, when the service is absent. Key priority:
+ *     `config.apiKey` -> `MINIMAX_API_KEY` env -> saved `secret.json`.
+ *
+ * In both cases the produced mp3 is copied into this plugin's own output
+ * directory, so one stable URL serves it.
  */
 import { join, dirname, basename } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
@@ -19,7 +23,7 @@ import fsp from 'node:fs/promises'
 export const name = 'minimax-autoread'
 
 const ROUTE_PREFIX = '/minimax-autoread/api'
-/** MiniMax internation first, mainland fallback — both verified reachable. */
+/** MiniMax international first, mainland fallback — both verified reachable. */
 const API_HOSTS = ['https://api.minimaxi.com', 'https://api.minimax.chat']
 const MAX_CHARS = 8000
 const DEFAULT_MODEL = 'speech-2.8-hd'
@@ -80,12 +84,27 @@ function readBody(req, limit = 1024 * 1024) {
   })
 }
 
-/* ----------------------------------------------------------- direct client */
+function stamp() {
+  return new Date().toISOString().replace(/[:.]/g, '-')
+}
 
-function createDirect(ctx, config) {
+/* ------------------------------------------------------------------ bridge */
+
+function createBridge(ctx, config) {
   const dataDir = typeof config.dataDir === 'string' && config.dataDir ? config.dataDir : defaultDataDir()
   const outputDir = join(dataDir, 'output')
   const secretFile = join(dataDir, 'secret.json')
+
+  /** The dsh-minimax-voice service, when that plugin is mounted. */
+  function voiceService() {
+    try {
+      const service = ctx.get('minimaxVoice')
+      if (service && typeof service.synthesize === 'function') return service
+    } catch {
+      /* service not mounted in this composition */
+    }
+    return undefined
+  }
 
   async function resolveApiKey() {
     if (typeof config.apiKey === 'string' && config.apiKey.trim()) {
@@ -106,26 +125,56 @@ function createDirect(ctx, config) {
     return Math.min(max, Math.max(min, parsed))
   }
 
-  async function synthesize(args) {
+  function normalize(args) {
     const text = typeof args.text === 'string' ? args.text.trim() : ''
     if (!text) throw new Error('text 不能为空')
     if (text.length > MAX_CHARS) throw new Error(`text 超过 ${MAX_CHARS} 字符`)
+    return {
+      text,
+      voiceId: typeof args.voiceId === 'string' && args.voiceId ? args.voiceId : DEFAULT_VOICE,
+      model: typeof args.model === 'string' && args.model ? args.model : DEFAULT_MODEL,
+      speed: num(args.speed, 1, 0.5, 2),
+    }
+  }
+
+  /** Copy a service-produced file into our own output directory. */
+  async function adopt(sourcePath) {
+    const file = `tts-${stamp()}-${randomBytes(3).toString('hex')}.mp3`
+    await fsp.mkdir(outputDir, { recursive: true })
+    await fsp.copyFile(sourcePath, join(outputDir, file))
+    return join(outputDir, file)
+  }
+
+  async function synthesizeViaService(service, args) {
+    const { text, voiceId, model, speed } = normalize(args)
+    const result = await service.synthesize({ text, voiceId, model, speed })
+    const source = result && result.path
+    if (typeof source !== 'string' || !source) throw new Error('语音服务没有返回音频路径')
+    const target = await adopt(source)
+    return {
+      path: target,
+      file: basename(target),
+      durationMs: (result && result.durationMs) ?? null,
+      characters: (result && result.characters) ?? text.length,
+      voiceId: (result && result.voiceId) || voiceId,
+      backend: 'voice-service',
+    }
+  }
+
+  async function synthesizeDirect(args) {
+    const { text, voiceId, model, speed } = normalize(args)
     const { key } = await resolveApiKey()
-    if (!key) throw new Error('还没有配置 MiniMax API Key：请在「MiniMax 自动朗读」设置里填写，或设置环境变量 MINIMAX_API_KEY')
+    if (!key) {
+      throw new Error('还没有配置 MiniMax API Key：安装 dsh-minimax-voice，或在「MiniMax 自动朗读」设置里填写')
+    }
 
     const body = {
-      model: typeof args.model === 'string' && args.model ? args.model : DEFAULT_MODEL,
+      model,
       text,
       stream: false,
-      voice_setting: {
-        voice_id: typeof args.voiceId === 'string' && args.voiceId ? args.voiceId : DEFAULT_VOICE,
-        speed: num(args.speed, 1, 0.5, 2),
-        vol: num(args.vol, 1, 0.01, 10),
-        pitch: num(args.pitch, 0, -12, 12),
-      },
+      voice_setting: { voice_id: voiceId, speed, vol: 1, pitch: 0 },
       audio_setting: { sample_rate: 32000, bitrate: 128000, format: 'mp3' },
     }
-    if (typeof args.emotion === 'string' && args.emotion) body.voice_setting.emotion = args.emotion
 
     let lastError = ''
     for (const host of API_HOSTS) {
@@ -159,7 +208,7 @@ function createDirect(ctx, config) {
       }
       const bytes = Buffer.alloc(hex.length / 2)
       for (let i = 0; i < bytes.length; i += 1) bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
-      const file = `tts-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomBytes(3).toString('hex')}.mp3`
+      const file = `tts-${stamp()}-${randomBytes(3).toString('hex')}.mp3`
       await fsp.mkdir(outputDir, { recursive: true })
       await fsp.writeFile(join(outputDir, file), bytes)
       return {
@@ -167,9 +216,37 @@ function createDirect(ctx, config) {
         file,
         durationMs: (payload.extra_info && payload.extra_info.audio_length) || null,
         characters: text.length,
+        voiceId,
+        backend: 'direct',
       }
     }
     throw new Error(`MiniMax 合成失败：${lastError}`)
+  }
+
+  async function synthesize(args) {
+    const service = voiceService()
+    if (service) return synthesizeViaService(service, args)
+    return synthesizeDirect(args)
+  }
+
+  async function status() {
+    const service = voiceService()
+    if (service) {
+      let detail = null
+      try {
+        detail = typeof service.status === 'function' ? await service.status() : null
+      } catch {
+        /* status is best effort */
+      }
+      return {
+        configured: detail && detail.configured === false ? false : true,
+        backend: 'voice-service',
+        keySource: detail && detail.keySource ? detail.keySource : null,
+        dataDir,
+      }
+    }
+    const { key, source } = await resolveApiKey()
+    return { configured: Boolean(key), backend: key ? 'direct' : 'none', keySource: source, dataDir }
   }
 
   async function handleHttp(req, res) {
@@ -181,8 +258,7 @@ function createDirect(ctx, config) {
 
     try {
       if (method === 'GET' && path === '/status') {
-        const { source } = await resolveApiKey()
-        sendJson(res, 200, { configured: Boolean(source), keySource: source, mode: 'direct', dataDir })
+        sendJson(res, 200, await status())
         return
       }
 
@@ -228,14 +304,14 @@ function createDirect(ctx, config) {
 /* ------------------------------------------------------------------- apply */
 
 export function apply(ctx, config = {}) {
-  const direct = createDirect(ctx, config)
+  const bridge = createBridge(ctx, config)
 
   let routeRegistered = false
   const claimRoute = (webServer) => {
     if (routeRegistered || !webServer) return
     routeRegistered = true
     ctx.effect(
-      () => webServer.register({ kind: 'prefix', path: ROUTE_PREFIX, handler: (req, res) => void direct.handleHttp(req, res) }),
+      () => webServer.register({ kind: 'prefix', path: ROUTE_PREFIX, handler: (req, res) => void bridge.handleHttp(req, res) }),
       'minimax-autoread: http route',
     )
   }
@@ -248,7 +324,7 @@ export function apply(ctx, config = {}) {
   }
 
   try {
-    ctx.logger.info('minimax-autoread ready: standalone fallback at %s, data at %s', ROUTE_PREFIX, direct.dataDir)
+    ctx.logger.info('minimax-autoread ready: bridge at %s, data at %s', ROUTE_PREFIX, bridge.dataDir)
   } catch {
     /* logger unavailable in this composition */
   }

@@ -28,26 +28,25 @@ This plugin is the thin layer that connects a message action button to existing 
 
 Either of:
 
-- **Recommended**: install [`dsh-minimax-voice`](https://www.npmjs.com/package/dsh-minimax-voice) and put a MiniMax API key in its **Settings → MiniMax Voice** panel. The key, cloned voices and billing stay there; this plugin calls its local surface:
-
-  ```
-  POST /mmvoice/api/tts      { text, voiceId, model, speed }  ->  { path, durationMs, characters }
-  GET  /mmvoice/api/output/:file                               ->  mp3
-  ```
-
-- **Standalone mode**: the plugin's host half registers `/minimax-autoread/api/*` on the Harness web server and calls MiniMax directly. Key priority:
+- **Recommended**: install [`dsh-minimax-voice`](https://www.npmjs.com/package/dsh-minimax-voice). This plugin's host calls its `minimaxVoice` service directly (same process, no HTTP); the key, cloned voices and billing stay there.
+- **Standalone mode**: the host calls MiniMax itself. Key priority:
 
   1. `config.apiKey` in the plugin configuration
   2. the `MINIMAX_API_KEY` environment variable (restart the Harness after setting it)
   3. saved from the settings panel (**plain text** at `~/.dsh/minimax-autoread/secret.json`)
 
-  ```
-  POST /minimax-autoread/api/key    { key }                          ->  { configured }
-  POST /minimax-autoread/api/tts    { text, voiceId, model, speed }  ->  { path, file, durationMs, characters }
-  GET  /minimax-autoread/api/output/:file                            ->  mp3
-  ```
+The browser only ever calls this plugin's own routes:
 
-The client probes both backends at startup and prefers `dsh-minimax-voice`. With neither configured, the button reports an error instead of failing silently.
+```
+GET  /minimax-autoread/api/status                                  ->  { configured, backend, keySource }
+POST /minimax-autoread/api/tts    { text, voiceId, model, speed }  ->  { path, file, durationMs, characters, backend }
+POST /minimax-autoread/api/key    { key }                          ->  { configured }
+GET  /minimax-autoread/api/output/:file                            ->  mp3
+```
+
+> **Why not fetch `dsh-minimax-voice`'s HTTP surface from the browser?** That route runs every request through the DSH `connection` trust check, which answers 401 to a plain `fetch`. The client then decided "no backend" and failed silently — the bug 0.2.1 fixes. Calling the service in-process removes auth, CORS and ports from the equation.
+
+With neither backend configured, the button shows ⚠️ and puts the concrete error in its tooltip instead of failing silently.
 
 ## Install
 
@@ -107,7 +106,7 @@ Stored in the browser's `localStorage` under `dsh.minimax-autoread.settings`. No
 
 Design notes:
 
-- **The host half is a fallback only.** When `dsh-minimax-voice` is present its routes carry all traffic; the standalone route stays idle.
+- **The host resolves the backend; the browser never authenticates.** The client only calls `/minimax-autoread/api/*`; the host prefers the `minimaxVoice` service and falls back to MiniMax directly. Produced mp3s are copied into this plugin's output directory so one stable URL serves them.
 - **Prose is cached by `messageId`.** The action slot hands over an id only, so the button has to learn what that message said. The event stream is the only reliable source.
 - **Replay is not speech.** Page load replays history; the first pump runs with `synced` still `false`, so it fills the cache without talking.
 - **Replay is free.** Synthesized audio is cached in memory per message id; a second click plays the file instead of re-billing.

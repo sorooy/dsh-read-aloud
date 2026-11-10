@@ -28,10 +28,8 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const { useCallback, useEffect, useRef, useState } = React
 
-    /** HTTP surface of the dsh-minimax-voice plugin. */
-    const VOICE_API = '/mmvoice/api'
-    /** Standalone HTTP surface of this plugin's host half. */
-    const DIRECT_API = '/minimax-autoread/api'
+    /** Host bridge of this plugin; the host picks the real synthesis backend. */
+    const API = '/minimax-autoread/api'
     /** localStorage key for the browser-local preferences. */
     const STORE_KEY = 'dsh.minimax-autoread.settings'
     /** Characters sent per request; MiniMax accepts 10000, stay well below. */
@@ -113,70 +111,21 @@ window.__ModuleLoader__.load({
     /* ------------------------------------------------------------- routing */
 
     /**
-     * Which synthesis backend to use: 'voice' (dsh-minimax-voice),
-     * 'direct' (standalone host route), or 'none'. Cached; re-probed on demand.
+     * Send one synthesis request to the host bridge. The host decides whether
+     * that means the `minimaxVoice` service or a direct MiniMax call, so the
+     * browser never needs to know — or authenticate against — either one.
      */
-    let route = null
-
-    async function detectRoute(force) {
-      if (route && !force) return route
-      try {
-        const response = await fetch(`${VOICE_API}/status`, { signal: AbortSignal.timeout(2500) })
-        if (response.ok) {
-          const payload = await response.json()
-          if (payload && payload.configured) {
-            route = 'voice'
-            return route
-          }
-        }
-      } catch {
-        /* plugin absent or host down */
-      }
-      try {
-        const response = await fetch(`${DIRECT_API}/status`, { signal: AbortSignal.timeout(2500) })
-        if (response.ok) {
-          const payload = await response.json()
-          if (payload && payload.configured) {
-            route = 'direct'
-            return route
-          }
-        }
-      } catch {
-        /* standalone host half not loaded */
-      }
-      route = 'none'
-      return route
-    }
-
-    /** POST one synthesis request against the active route. */
     async function synthesize(body) {
-      const active = await detectRoute(false)
-      if (active === 'none') {
-        const error = new Error('还没有可用的语音后端：安装 dsh-minimax-voice，或在「MiniMax 自动朗读」设置里填写 MiniMax API Key')
-        error.code = 'no-backend'
-        throw error
-      }
-      const base = active === 'voice' ? VOICE_API : DIRECT_API
-      const payload = active === 'voice'
-        ? { text: body.text, voiceId: body.voiceId, model: body.model, speed: body.speed }
-        : body
-      const response = await fetch(`${base}/tts`, {
+      const response = await fetch(`${API}/tts`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       })
-      if (response.status === 404 && active === 'voice') {
-        // The voice plugin vanished mid-flight; re-probe and retry once.
-        route = null
-        const next = await detectRoute(true)
-        if (next === 'direct') return synthesize(body)
-      }
       if (!response.ok) {
         const detail = await response.text().catch(() => '')
         throw new Error(`HTTP ${response.status} ${detail.slice(0, 200)}`)
       }
-      const result = await response.json()
-      return { ...result, route: active }
+      return response.json()
     }
 
     /* -------------------------------------------------------------------- text */
@@ -351,14 +300,13 @@ window.__ModuleLoader__.load({
               speed: typeof settings.speed === 'number' ? settings.speed : 1,
             })
             file = baseName(result.path) || result.file
-            characters = result.characters
-            durationMs = result.durationMs
-            if (messageId && file) replayCache.set(messageId, file)
+          characters = result.characters
+          durationMs = result.durationMs
+          if (messageId && file) replayCache.set(messageId, file)
           }
           if (this.disposed) return
 
-          const base = route === 'direct' ? DIRECT_API : VOICE_API
-          const audio = new Audio(`${base}/output/${encodeURIComponent(file)}`)
+          const audio = new Audio(`${API}/output/${encodeURIComponent(file)}`)
           this.audio = audio
           audio.addEventListener('ended', () => this.finish(audio))
           audio.addEventListener('error', () => this.finish(audio))
@@ -441,21 +389,29 @@ window.__ModuleLoader__.load({
 
       if (!reader) return null
 
-      const label = state.playing ? '停止朗读' : '朗读这条回复'
+      const label = state.error
+        ? `朗读失败：${state.error}`
+        : state.playing
+          ? '停止朗读'
+          : '朗读这条回复'
       return h(
         'button',
         {
           type: 'button',
           style: {
             ...actionStyle,
-            color: state.playing ? 'var(--dsw-alias-brand-primary)' : actionStyle.color,
+            color: state.error
+              ? 'var(--dsw-alias-state-error-primary)'
+              : state.playing
+                ? 'var(--dsw-alias-brand-primary)'
+                : actionStyle.color,
           },
-          title: state.error ? `${label}（上次失败：${state.error}）` : label,
+          title: label,
           'aria-label': label,
           'aria-pressed': state.playing,
           onClick,
         },
-        state.playing ? '⏹' : '🔊',
+        state.error ? '⚠️' : state.playing ? '⏹' : '🔊',
       )
     }
 
@@ -505,9 +461,9 @@ window.__ModuleLoader__.load({
     }
     const rowStyle = { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }
 
-    const MODE_LABEL = {
-      voice: '走 dsh-minimax-voice（密钥与音色库由它管理）',
-      direct: '独立模式：由本插件直连 MiniMax',
+    const BACKEND_LABEL = {
+      'voice-service': 'dsh-minimax-voice 服务（密钥与音色库由它管理）',
+      direct: '独立模式：本插件直连 MiniMax',
       none: '未配置：安装 dsh-minimax-voice，或在下方填写 MiniMax API Key',
     }
 
@@ -515,32 +471,32 @@ window.__ModuleLoader__.load({
       const current = useSettings()
       const [voiceId, setVoiceId] = useState(current.voiceId)
       const [apiKey, setApiKey] = useState('')
-      const [mode, setMode] = useState(null)
-      const [directStatus, setDirectStatus] = useState(null)
+      const [status, setStatus] = useState(null)
       const [testing, setTesting] = useState(false)
       const [notice, setNotice] = useState(null)
       const [error, setError] = useState(null)
       const audioRef = useRef(null)
 
-      useEffect(() => {
-        let alive = true
-        ;(async () => {
-          const active = await detectRoute(true)
-          if (!alive) return
-          setMode(active)
-          if (active === 'direct' || active === 'none') {
-            try {
-              const response = await fetch(`${DIRECT_API}/status`, { signal: AbortSignal.timeout(2500) })
-              if (response.ok) setDirectStatus(await response.json())
-            } catch {
-              /* host half not loaded */
-            }
+      const refresh = useCallback(async () => {
+        try {
+          const response = await fetch(`${API}/status`, { signal: AbortSignal.timeout(3000) })
+          if (response.ok) {
+            setStatus(await response.json())
+            return
           }
-        })()
-        return () => {
-          alive = false
+          setStatus({ configured: false, backend: 'none', error: `HTTP ${response.status}` })
+        } catch (failure) {
+          setStatus({
+            configured: false,
+            backend: 'none',
+            error: failure && failure.message ? failure.message : '宿主路由未就绪',
+          })
         }
       }, [])
+
+      useEffect(() => {
+        void refresh()
+      }, [refresh])
 
       const save = useCallback((patch) => {
         writeSettings(patch)
@@ -550,7 +506,7 @@ window.__ModuleLoader__.load({
         setNotice(null)
         setError(null)
         try {
-          const response = await fetch(`${DIRECT_API}/key`, {
+          const response = await fetch(`${API}/key`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ key: apiKey.trim() }),
@@ -558,15 +514,12 @@ window.__ModuleLoader__.load({
           const payload = await response.json().catch(() => ({}))
           if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`)
           setApiKey('')
-          route = null
-          const active = await detectRoute(true)
-          setMode(active)
-          setDirectStatus((status) => ({ ...(status || {}), configured: true, keySource: 'file' }))
-          setNotice(active === 'direct' ? '密钥已保存，独立模式可用' : '密钥已保存（当前语音仍走 dsh-minimax-voice）')
+          await refresh()
+          setNotice('密钥已保存')
         } catch (failure) {
           setError(failure && failure.message ? failure.message : String(failure))
         }
-      }, [apiKey])
+      }, [apiKey, refresh])
 
       const preview = useCallback(async () => {
         setTesting(true)
@@ -588,14 +541,13 @@ window.__ModuleLoader__.load({
               /* ignore */
             }
           }
-          const base = result.route === 'direct' ? DIRECT_API : VOICE_API
-          const audio = new Audio(`${base}/output/${encodeURIComponent(file)}`)
+          const audio = new Audio(`${API}/output/${encodeURIComponent(file)}`)
           audioRef.current = audio
           await audio.play()
           setNotice(
             `已合成 ${((result.durationMs || 0) / 1000).toFixed(1)} 秒`
             + (result.characters ? `，计费 ${result.characters} 字符` : '')
-            + `（${result.route === 'direct' ? '独立模式' : 'dsh-minimax-voice'}）`,
+            + (result.backend ? `（${result.backend === 'voice-service' ? 'dsh-minimax-voice 服务' : '独立模式'}）` : ''),
           )
         } catch (failure) {
           setError(failure && failure.message ? failure.message : String(failure))
@@ -673,8 +625,9 @@ window.__ModuleLoader__.load({
           h(
             'p',
             { style: hintStyle },
-            `当前后端：${mode === null ? '检测中…' : MODE_LABEL[mode] || mode}`
-            + (directStatus && directStatus.keySource ? ` · Key 来源：${directStatus.keySource}` : ''),
+            `当前后端：${status === null ? '检测中…' : BACKEND_LABEL[status.backend] || status.backend}`
+            + (status && status.keySource ? ` · Key 来源：${status.keySource}` : '')
+            + (status && status.error ? ` · ${status.error}` : ''),
           ),
           notice ? h('p', { style: { ...hintStyle, color: 'var(--dsw-alias-state-success-primary)' } }, notice) : null,
           error ? h('p', { style: { ...hintStyle, color: 'var(--dsw-alias-state-error-primary)' } }, error) : null,
@@ -690,7 +643,9 @@ window.__ModuleLoader__.load({
               style: { ...inputStyle, flex: '1 1 260px' },
               type: 'password',
               value: apiKey,
-              placeholder: directStatus && directStatus.configured ? '已配置（输入新值可覆盖）' : '粘贴 MiniMax API Key',
+              placeholder: status && status.configured && status.backend === 'direct'
+                ? '已配置（输入新值可覆盖）'
+                : '粘贴 MiniMax API Key',
               onChange: (event) => setApiKey(event.target.value),
             }),
             h('button', { type: 'button', style: buttonStyle, onClick: saveKey, disabled: !apiKey.trim() }, '保存'),
