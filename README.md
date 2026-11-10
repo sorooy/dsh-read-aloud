@@ -35,6 +35,7 @@ This plugin is the thin layer that connects a message action button to existing 
 - **One reading per turn.** A multi-step turn emits one Assistant message per step; reading each would talk over the tool calls, so only the newest prose is kept and spoken when the turn closes.
 - **Optional auto-read**: speak the end of every turn.
 - **Barge-in**: sending a new message cuts the current audio immediately (Doubao-style); the next reply is read as usual. Toggle in settings.
+- **Code and links are skipped**: fenced blocks are dropped whole, links contribute only their label, and images or table rules never get read. Inline code such as `npm_install` is kept — that is usually the name you need to hear.
 - **History works too**: the event stream is cached silently on page load, without speaking it.
 - **Single playback**: starting another message stops the current one.
 - **Configurable voice**: any MiniMax system voice or a cloned `voice_id`, plus model and speed, with a preview button.
@@ -93,6 +94,8 @@ Stored in the browser's `localStorage` under `dsh.read-aloud.settings`. Nothing 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | `true` | Speak the end of each turn |
+| `interrupt` | `true` | Cut playback when a new message is sent |
+| `skipMarkup` | `true` | Drop code blocks and link addresses |
 | `voiceId` | `female-shaonv` | MiniMax voice id, system or cloned |
 | `model` | `speech-2.8-hd` | Synthesis model (2.8 / 2.6 / 02 / 01, hd and turbo) |
 | `speed` | `1` | Speech rate, 0.8–1.5 |

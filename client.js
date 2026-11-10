@@ -38,6 +38,7 @@ window.__ModuleLoader__.load({
     const DEFAULT_SETTINGS = {
       enabled: true,
       interrupt: true,
+      skipMarkup: true,
       voiceId: 'female-shaonv',
       model: 'speech-2.8-hd',
       speed: 1,
@@ -82,7 +83,7 @@ window.__ModuleLoader__.load({
     const settingsListeners = new Set()
 
     /** Synthesis inputs whose change invalidates the replay cache. */
-    const SYNTH_KEYS = ['voiceId', 'model', 'speed']
+    const SYNTH_KEYS = ['voiceId', 'model', 'speed', 'skipMarkup']
 
     function writeSettings(patch) {
       const changedSynth = SYNTH_KEYS.some((key) => key in patch && patch[key] !== settings[key])
@@ -146,6 +147,73 @@ window.__ModuleLoader__.load({
     function clamp(text) {
       const value = typeof text === 'string' ? text.trim() : ''
       return value.length > MAX_CHARS ? `${value.slice(0, MAX_CHARS)}…` : value
+    }
+
+    /**
+     * Turn Markdown prose into something worth hearing.
+     *
+     * Code, links and table rules are the parts a listener cannot follow: a
+     * fenced block becomes a stream of punctuation, and any URL read out loud
+     * is noise. Links keep their label, code and images disappear.
+     */
+    function speakable(markdown) {
+      if (typeof markdown !== 'string' || !markdown) return ''
+      let text = markdown
+
+      // fenced code blocks (``` and ~~~), including indented ones
+      text = text.replace(/^[ \t]*(```|~~~)[^\n]*\n[\s\S]*?^[ \t]*\1[ \t]*$/gm, '\n')
+      // an unterminated fence eats the rest — better than reading it
+      text = text.replace(/^[ \t]*(```|~~~)[\s\S]*$/m, '\n')
+      // images: nothing useful to say
+      text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+
+      // Inline code is usually an identifier the listener needs verbatim, so
+      // park it before link/emphasis passes would rewrite or eat its contents.
+      const parked = []
+      text = text.replace(/`([^`\n]*)`/g, (_, code) => {
+        parked.push(code)
+        return `\uE000${parked.length - 1}\uE001`
+      })
+
+      // links: keep the label, drop the address
+      text = text.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      text = text.replace(/\[([^\]]*)\]\[[^\]]*\]/g, '$1')
+      // autolinks and bare URLs
+      text = text.replace(/<https?:\/\/[^>]*>/g, ' ')
+      text = text.replace(/https?:\/\/\S+/g, ' ')
+      text = text.replace(/\bwww\.\S+/g, ' ')
+
+      // raw HTML
+      text = text.replace(/<[^>\n]{1,200}>/g, ' ')
+      // block markers (task-list checkboxes included)
+      text = text.replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, '')
+      text = text.replace(/^[ \t]{0,3}>[ \t]?/gm, '')
+      text = text.replace(/^[ \t]{0,3}([-*+]|\d+[.)])[ \t]+/gm, '')
+      text = text.replace(/^[ \t]{0,3}\[[ xX]\][ \t]*/gm, '')
+
+      // rules, emphasis, table rules
+      text = text.replace(/^[ \t]{0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/gm, '\n')
+      // a table's separator row is punctuation only — drop it before the pipes
+      text = text.replace(/^[ \t]*\|?[ \t]*:?-{2,}:?[ \t]*(?:\|[ \t]*:?-{2,}:?[ \t]*)*\|?[ \t]*$/gm, '\n')
+      text = text.replace(/[*_~]{1,3}/g, '')
+      text = text.replace(/[ \t]*\|[ \t]*/g, '，')
+
+      // put the identifiers back, minus anything address-like inside them
+      text = text.replace(/\uE000(\d+)\uE001/g, (_, index) => {
+        const code = parked[Number(index)] ?? ''
+        return code.replace(/https?:\/\/\S+/g, ' ')
+      })
+
+      text = text.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n')
+      // stray pauses at line edges read as "comma, comma"
+      text = text.replace(/^[ \t，、]+/gm, '').replace(/[ \t，、]+$/gm, '')
+      return text.trim()
+    }
+
+    /** The text actually sent for synthesis, honouring the skip setting. */
+    function speechText(raw) {
+      const source = typeof raw === 'string' ? raw : ''
+      return settings.skipMarkup === false ? source.trim() : speakable(source)
     }
 
     /** File name of a host-side output path, whatever the separator. */
@@ -252,8 +320,10 @@ window.__ModuleLoader__.load({
             const message = event.data && event.data.message
             if (!message) continue
             const id = typeof message.id === 'string' ? message.id : null
-            const text = assistantText(message.content)
-            if (id && text) this.texts.set(id, text)
+            const raw = assistantText(message.content)
+            if (id && raw) this.texts.set(id, raw)
+            // Speak the stripped version; keep the raw one for a settings flip.
+            const text = speechText(raw)
             if (live && text) {
               this.pendingId = id
               this.pendingText = text
@@ -280,9 +350,15 @@ window.__ModuleLoader__.load({
           this.stop()
           return
         }
-        const text = clamp(this.textFor(messageId))
-        if (!text && !replayCache.has(messageId)) {
+        const raw = this.textFor(messageId)
+        if (!raw && !replayCache.has(messageId)) {
           this.error = '这条消息的正文还没缓存到，刷新页面后再试'
+          this.emit()
+          return
+        }
+        const text = clamp(speechText(raw))
+        if (!text && !replayCache.has(messageId)) {
+          this.error = '这条只有代码或链接，没有可朗读的正文'
           this.emit()
           return
         }
@@ -601,9 +677,20 @@ window.__ModuleLoader__.load({
             h('span', null, '发送新消息时立刻打断正在播报'),
           ),
           h(
+            'label',
+            { style: { ...rowStyle, marginTop: 6, cursor: 'pointer' } },
+            h('input', {
+              type: 'checkbox',
+              checked: current.skipMarkup !== false,
+              onChange: (event) => save({ skipMarkup: event.target.checked }),
+            }),
+            h('span', null, '跳过代码块与链接（只念正文）'),
+          ),
+          h(
             'p',
             { style: hintStyle },
-            '打断后不会自动重播被切断的那条；新回复到达时会照常朗读。想重听，点那条回复的 🔊 即可（走缓存，不计费）。',
+            '打断后不会自动重播被切断的那条；新回复到达时会照常朗读。想重听，点那条回复的 🔊 即可（走缓存，不计费）。'
+            + '「跳过」打开时，围栏代码块整段不念，链接只念文字、不念地址，图片与表格线也会省掉；关掉则按原文朗读。',
           ),
         ),
         h(
