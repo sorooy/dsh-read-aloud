@@ -8,7 +8,7 @@
 | --- | --- |
 | 源目录 | `D:\所有缓存文件\日常\dsh-read-aloud` |
 | Git 分支 | `main` |
-| 当前 HEAD | `01de74d`（feat: skip code and links when speaking） |
+| 当前 HEAD | 以 `git rev-parse --short HEAD` 为准（撰写时为 `e56a71f`） |
 | 未提交改动 | 无 |
 | 仓库体积 | 工作区 0.1 MB，`.git` 0.2 MB，共 13 个跟踪文件 |
 | 包名 / 版本 | `dsh-read-aloud` / `0.5.0` |
@@ -93,4 +93,4 @@ git ls-remote https://github.com/<GITHUB_USER>/dsh-read-aloud   # 应有 refs/he
 curl -sI https://github.com/<GITHUB_USER>/dsh-read-aloud | head -1   # 期望 200
 ```
 
-完成标准：远端 `main` 指向 `01de74d`（或其后提交），仓库公开，带 `dsh-plugin` topic。
+完成标准：远端 `main` 与本地 `main` 一致（`git rev-parse HEAD` 对比），仓库公开，带 `dsh-plugin` topic。
