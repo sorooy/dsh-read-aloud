@@ -1,8 +1,22 @@
 # dsh-minimax-autoread
 
-**Read DeepSeek Harness replies out loud with MiniMax voices.** A speaker button in every Assistant reply's action strip, plus an optional auto-read switch.
+> **One line: text-to-speech for DeepSeek Harness.** Every Assistant reply gets a 🔊 button that reads it aloud in a MiniMax voice. Optional auto-read each turn, and it stops the moment you send a new message.
 
-> A community plugin, not an official DeepSeek or MiniMax product.
+Turns DSH replies into audio with [MiniMax](https://www.minimaxi.com) synthesis — pick any system voice, or reuse a cloned one.
+
+**Who it is for**: long replies are tiring to read, you want to listen while doing something else, you are on a phone, or you need the answer read out to someone next to you.
+
+| What you get | Detail |
+| --- | --- |
+| 🔊 one button per reply | In the same strip as copy / fork / 👍👎. Click to read, click to stop, click again to replay (replays are free) |
+| Auto-read per turn | Optionally read the last paragraph of every reply |
+| Barge-in | Sending a new message cuts the audio immediately (Doubao-style); the next reply is read as usual |
+| Voice and rate | MiniMax system or cloned voices, model, speed and emotion, with a preview |
+| Code stays silent | Only prose text blocks are read — no code, tool calls or reasoning |
+
+> Synthesis goes through MiniMax's cloud API and **needs network access**; the DSH UI itself stays local.
+
+A community plugin, not an official DeepSeek or MiniMax product.
 
 English | [简体中文](README.zh-CN.md)
 
