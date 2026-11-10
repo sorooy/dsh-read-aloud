@@ -1,5 +1,5 @@
-url: https://github.com/<owner>/<repo>
-name: <owner>/<repo>
+url: https://github.com/sorooy/dsh-read-aloud
+name: sorooy/dsh-read-aloud
 category: voice
 description:
   en: Reads DeepSeek Harness replies aloud with MiniMax voices, with a per-message speaker button, optional auto-read and barge-in when you send a new message.
