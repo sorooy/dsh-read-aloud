@@ -37,6 +37,7 @@ window.__ModuleLoader__.load({
 
     const DEFAULT_SETTINGS = {
       enabled: true,
+      interrupt: true,
       voiceId: 'female-shaonv',
       model: 'speech-2.8-hd',
       speed: 1,
@@ -232,6 +233,17 @@ window.__ModuleLoader__.load({
         for (const entry of change.entries) {
           const event = entry && entry.event
           if (!event) continue
+
+          // Barge-in: once the human speaks again the floor is theirs — cut the
+          // current audio immediately, the next turn will read its own reply.
+          if (
+            live &&
+            (event.type === 'user/message' || event.type === 'turn/start') &&
+            settings.interrupt !== false
+          ) {
+            if (this.playing) this.stop()
+            continue
+          }
 
           // Keep only the newest Assistant prose of the turn: a multi-step turn
           // emits one `assistant/message` per step, and reading every step out
@@ -577,6 +589,21 @@ window.__ModuleLoader__.load({
               onChange: (event) => save({ enabled: event.target.checked }),
             }),
             h('span', null, '另外，每轮结束自动朗读最后一段'),
+          ),
+          h(
+            'label',
+            { style: { ...rowStyle, marginTop: 6, cursor: 'pointer' } },
+            h('input', {
+              type: 'checkbox',
+              checked: current.interrupt !== false,
+              onChange: (event) => save({ interrupt: event.target.checked }),
+            }),
+            h('span', null, '发送新消息时立刻打断正在播报'),
+          ),
+          h(
+            'p',
+            { style: hintStyle },
+            '打断后不会自动重播被切断的那条；新回复到达时会照常朗读。想重听，点那条回复的 🔊 即可（走缓存，不计费）。',
           ),
         ),
         h(

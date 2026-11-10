@@ -1,6 +1,6 @@
 {
   "name": "dsh-minimax-autoread",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Read DeepSeek Harness replies out loud with MiniMax voices: a per-message speaker button plus optional auto-read · DeepSeek Harness 的 MiniMax 朗读插件：每条回复一个喇叭按钮，可自动朗读",
   "type": "module",
   "license": "MIT",

@@ -20,6 +20,7 @@ This plugin is the thin layer that connects a message action button to existing 
   click to read that message, click while it plays to stop, click again to replay.
 - **One reading per turn.** A multi-step turn emits one Assistant message per step; reading each would talk over the tool calls, so only the newest prose is kept and spoken when the turn closes.
 - **Optional auto-read**: speak the end of every turn.
+- **Barge-in**: sending a new message cuts the current audio immediately (Doubao-style); the next reply is read as usual. Toggle in settings.
 - **History works too**: the event stream is cached silently on page load, without speaking it.
 - **Single playback**: starting another message stops the current one.
 - **Configurable voice**: any MiniMax system voice or a cloned `voice_id`, plus model and speed, with a preview button.
