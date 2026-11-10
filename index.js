@@ -1,7 +1,7 @@
 /**
- * Host half of dsh-minimax-autoread.
+ * Host half of dsh-read-aloud.
  *
- * The browser client only ever talks to this file's `/minimax-autoread/api/*`
+ * The browser client only ever talks to this file's `/read-aloud/api/*`
  * routes. Behind them there are two backends, resolved per request:
  *
  *  1. The `minimaxVoice` Cordis service, when `dsh-minimax-voice` is installed.
@@ -20,9 +20,9 @@ import { homedir, tmpdir } from 'node:os'
 import { randomBytes } from 'node:crypto'
 import fsp from 'node:fs/promises'
 
-export const name = 'minimax-autoread'
+export const name = 'read-aloud'
 
-const ROUTE_PREFIX = '/minimax-autoread/api'
+const ROUTE_PREFIX = '/read-aloud/api'
 /** MiniMax international first, mainland fallback — both verified reachable. */
 const API_HOSTS = ['https://api.minimaxi.com', 'https://api.minimax.chat']
 const MAX_CHARS = 8000
@@ -33,9 +33,9 @@ const DEFAULT_VOICE = 'female-shaonv'
 
 function defaultDataDir() {
   const profile = process.env.DSH_PROFILE_DIR
-  if (profile) return join(profile, 'minimax-autoread')
+  if (profile) return join(profile, 'read-aloud')
   const home = process.env.DSH_HOME || join(homedir(), '.dsh')
-  return join(home, 'minimax-autoread')
+  return join(home, 'read-aloud')
 }
 
 async function readJson(file, fallback) {
@@ -312,7 +312,7 @@ export function apply(ctx, config = {}) {
     routeRegistered = true
     ctx.effect(
       () => webServer.register({ kind: 'prefix', path: ROUTE_PREFIX, handler: (req, res) => void bridge.handleHttp(req, res) }),
-      'minimax-autoread: http route',
+      'read-aloud: http route',
     )
   }
 
@@ -324,7 +324,7 @@ export function apply(ctx, config = {}) {
   }
 
   try {
-    ctx.logger.info('minimax-autoread ready: bridge at %s, data at %s', ROUTE_PREFIX, bridge.dataDir)
+    ctx.logger.info('read-aloud ready: bridge at %s, data at %s', ROUTE_PREFIX, bridge.dataDir)
   } catch {
     /* logger unavailable in this composition */
   }

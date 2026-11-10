@@ -1,4 +1,4 @@
-# dsh-minimax-autoread
+# dsh-read-aloud
 
 > **One line: text-to-speech for DeepSeek Harness.** Every Assistant reply gets a 🔊 button that reads it aloud in a MiniMax voice. Optional auto-read each turn, and it stops the moment you send a new message.
 
@@ -48,15 +48,15 @@ Either of:
 
   1. `config.apiKey` in the plugin configuration
   2. the `MINIMAX_API_KEY` environment variable (restart the Harness after setting it)
-  3. saved from the settings panel (**plain text** at `~/.dsh/minimax-autoread/secret.json`)
+  3. saved from the settings panel (**plain text** at `~/.dsh/read-aloud/secret.json`)
 
 The browser only ever calls this plugin's own routes:
 
 ```
-GET  /minimax-autoread/api/status                                  ->  { configured, backend, keySource }
-POST /minimax-autoread/api/tts    { text, voiceId, model, speed }  ->  { path, file, durationMs, characters, backend }
-POST /minimax-autoread/api/key    { key }                          ->  { configured }
-GET  /minimax-autoread/api/output/:file                            ->  mp3
+GET  /read-aloud/api/status                                  ->  { configured, backend, keySource }
+POST /read-aloud/api/tts    { text, voiceId, model, speed }  ->  { path, file, durationMs, characters, backend }
+POST /read-aloud/api/key    { key }                          ->  { configured }
+GET  /read-aloud/api/output/:file                            ->  mp3
 ```
 
 > **Why not fetch `dsh-minimax-voice`'s HTTP surface from the browser?** That route runs every request through the DSH `connection` trust check, which answers 401 to a plain `fetch`. The client then decided "no backend" and failed silently — the bug 0.2.1 fixes. Calling the service in-process removes auth, CORS and ports from the equation.
@@ -68,14 +68,14 @@ With neither backend configured, the button shows ⚠️ and puts the concrete e
 **Source install only for now** — the package is not on npm yet, so the `dsh plugin add` npm form will not work.
 
 ```bash
-git clone https://gitee.com/op00007/dsh-minimax-autoread.git
-dsh plugin --profile desktop add ./dsh-minimax-autoread
+git clone https://gitee.com/op00007/dsh-minimax-autoread.git dsh-read-aloud
+dsh plugin --profile desktop add ./dsh-read-aloud
 ```
 
 Already have a local copy:
 
 ```bash
-dsh plugin --profile desktop add /absolute/path/to/dsh-minimax-autoread
+dsh plugin --profile desktop add /absolute/path/to/dsh-read-aloud
 ```
 
 Refresh the page afterwards — client plugins mount at page load.
@@ -88,7 +88,7 @@ Refresh the page afterwards — client plugins mount at page load.
 
 ## Settings
 
-Stored in the browser's `localStorage` under `dsh.minimax-autoread.settings`. Nothing is polled, reported, or written into host configuration.
+Stored in the browser's `localStorage` under `dsh.read-aloud.settings`. Nothing is polled, reported, or written into host configuration.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -121,7 +121,7 @@ Stored in the browser's `localStorage` under `dsh.minimax-autoread.settings`. No
 
 Design notes:
 
-- **The host resolves the backend; the browser never authenticates.** The client only calls `/minimax-autoread/api/*`; the host prefers the `minimaxVoice` service and falls back to MiniMax directly. Produced mp3s are copied into this plugin's output directory so one stable URL serves them.
+- **The host resolves the backend; the browser never authenticates.** The client only calls `/read-aloud/api/*`; the host prefers the `minimaxVoice` service and falls back to MiniMax directly. Produced mp3s are copied into this plugin's output directory so one stable URL serves them.
 - **Prose is cached by `messageId`.** The action slot hands over an id only, so the button has to learn what that message said. The event stream is the only reliable source.
 - **Replay is not speech.** Page load replays history; the first pump runs with `synced` still `false`, so it fills the cache without talking.
 - **Replay is free.** Synthesized audio is cached in memory per message id; a second click plays the file instead of re-billing.
@@ -147,10 +147,10 @@ Design notes:
 ## Development
 
 ```
-dsh-minimax-autoread/
+dsh-read-aloud/
 ├── client.js            # all logic: slots, event subscription, synthesis, playback
 ├── index.js             # host placeholder, declares the plugin
-├── cordis.patch.yml     # inserts the minimax-autoread row
+├── cordis.patch.yml     # inserts the read-aloud row
 ├── package.json
 ├── icon.svg
 ├── README.md
@@ -159,7 +159,7 @@ dsh-minimax-autoread/
 └── LICENSE
 ```
 
-A `file:` install is a **copy**, not a symlink: editing the checkout does not update an installed profile. Reinstall, or overwrite `node_modules/dsh-minimax-autoread/` and refresh.
+A `file:` install is a **copy**, not a symlink: editing the checkout does not update an installed profile. Reinstall, or overwrite `node_modules/dsh-read-aloud/` and refresh.
 
 ## License
 

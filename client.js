@@ -12,7 +12,7 @@
  *
  *  1. `dsh-minimax-voice` (`/mmvoice/api/tts`) when that plugin is installed —
  *     it owns the key, the cloned voices and the billing.
- *  2. Standalone mode (`/minimax-autoread/api/tts`) otherwise — the host half
+ *  2. Standalone mode (`/read-aloud/api/tts`) otherwise — the host half
  *     calls MiniMax directly with a key from settings / env / config.
  *
  * Text comes from the Session's event stream: every durable `assistant/message`
@@ -22,16 +22,16 @@
  */
 
 window.__ModuleLoader__.load({
-  id: 'dsh-minimax-autoread',
+  id: 'dsh-read-aloud',
   factory(require) {
     const React = require('react')
     const h = React.createElement
     const { useCallback, useEffect, useRef, useState } = React
 
     /** Host bridge of this plugin; the host picks the real synthesis backend. */
-    const API = '/minimax-autoread/api'
+    const API = '/read-aloud/api'
     /** localStorage key for the browser-local preferences. */
-    const STORE_KEY = 'dsh.minimax-autoread.settings'
+    const STORE_KEY = 'dsh.read-aloud.settings'
     /** Characters sent per request; MiniMax accepts 10000, stay well below. */
     const MAX_CHARS = 8000
 
@@ -192,7 +192,7 @@ window.__ModuleLoader__.load({
           return () => {
             if (typeof stop === 'function') stop()
           }
-        }, 'minimax-autoread: assistant messages')
+        }, 'read-aloud: assistant messages')
 
         // Cache whatever history the store already holds, without speaking it.
         this.pump(binding.eventSource)
@@ -616,14 +616,14 @@ window.__ModuleLoader__.load({
             h('input', {
               style: inputStyle,
               value: voiceId,
-              list: 'minimax-autoread-voices',
+              list: 'read-aloud-voices',
               placeholder: '音色 ID，例如 female-shaonv',
               onChange: (event) => setVoiceId(event.target.value),
               onBlur: () => save({ voiceId: voiceId.trim() }),
             }),
             h(
               'datalist',
-              { id: 'minimax-autoread-voices' },
+              { id: 'read-aloud-voices' },
               VOICE_SUGGESTIONS.map((voice) => h('option', { key: voice, value: voice })),
             ),
             h(
@@ -680,7 +680,7 @@ window.__ModuleLoader__.load({
           h(
             'p',
             { style: hintStyle },
-            '只有没有安装 dsh-minimax-voice 时才需要在这里填 Key。优先级：插件配置 > 环境变量 MINIMAX_API_KEY > 此处保存（明文存于 ~/.dsh/minimax-autoread/secret.json）。',
+            '只有没有安装 dsh-minimax-voice 时才需要在这里填 Key。优先级：插件配置 > 环境变量 MINIMAX_API_KEY > 此处保存（明文存于 ~/.dsh/read-aloud/secret.json）。',
           ),
         ),
       )
@@ -705,13 +705,13 @@ window.__ModuleLoader__.load({
       ctx.effect(() => () => {
         for (const reader of readers.values()) reader.dispose_()
         readers.clear()
-      }, 'minimax-autoread: readers')
+      }, 'read-aloud: readers')
 
       ctx.slots.inject('conversation.chat.assistant-actions', () =>
         ctx.slots.register(
           {
             name: 'conversation.chat.assistant-actions',
-            id: 'minimax-autoread',
+            id: 'read-aloud',
             order: 20,
             inject: (sessionId) => ({ reader: readerFor(sessionId) }),
           },
@@ -723,7 +723,7 @@ window.__ModuleLoader__.load({
         ctx.slots.register(
           {
             name: 'settings.section',
-            id: 'minimax-autoread',
+            id: 'read-aloud',
             order: 41,
             label: 'MiniMax 自动朗读',
           },

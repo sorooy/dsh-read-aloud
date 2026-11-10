@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0 — 2026-11-10
+
+**改名为 `dsh-read-aloud`**（原名 `dsh-minimax-autoread`，未在 npm 发布过，因此没有兼容负担）。
+
+- npm 包名、Cordis 插件 id、HTTP 路由、数据目录、localStorage 键名同步改名：
+  - 包 / 插件：`dsh-read-aloud`
+  - 路由前缀：`/read-aloud/api`
+  - 数据目录：`~/.dsh/read-aloud`
+  - 浏览器设置键：`dsh.read-aloud.settings`
+- 更名的原因是可检索性：原名含依赖方 `minimax` 却不含 `tts` / `read-aloud`，在 npm 与插件索引里很难被搜到。
+- 仍保留 `minimax` 相关关键词，按 MiniMax 搜索同样能找到。
+- Gitee 仓库路径暂未改（`dsh-minimax-autoread`），安装文档里的 clone 地址继续有效。
+
 ## 0.3.0 — 2026-11-10
 
 - **抢话打断**：播报过程中发送新消息（或新一轮开始）会立刻停止当前音频，像豆包那样把话语权交还给用户；新回复到达时照常自动朗读。可在设置里关掉（「发送新消息时立刻打断正在播报」，默认开）。

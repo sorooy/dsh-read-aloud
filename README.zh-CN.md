@@ -1,4 +1,4 @@
-# dsh-minimax-autoread
+# dsh-read-aloud
 
 > **一句话：给 DeepSeek Harness 加"朗读"。** 每条助手回复底下多一个 🔊，点一下就用 MiniMax 的声音念出来；也可以每轮结束自动念，你一说话它就停。
 
@@ -49,15 +49,15 @@ DeepSeek Harness 本身**没有**语音合成能力——组件文档写得很�
 
   1. 插件配置里的 `config.apiKey`
   2. 环境变量 `MINIMAX_API_KEY`（设置后需重启 Harness）
-  3. 设置面板「MiniMax API Key（独立模式）」里保存（**明文**存于 `~/.dsh/minimax-autoread/secret.json`）
+  3. 设置面板「MiniMax API Key（独立模式）」里保存（**明文**存于 `~/.dsh/read-aloud/secret.json`）
 
 浏览器端**只访问本插件自己的路由**，后端是什么与它无关：
 
 ```
-GET  /minimax-autoread/api/status                                  ->  { configured, backend, keySource }
-POST /minimax-autoread/api/tts    { text, voiceId, model, speed }  ->  { path, file, durationMs, characters, backend }
-POST /minimax-autoread/api/key    { key }                          ->  { configured }
-GET  /minimax-autoread/api/output/:file                            ->  mp3
+GET  /read-aloud/api/status                                  ->  { configured, backend, keySource }
+POST /read-aloud/api/tts    { text, voiceId, model, speed }  ->  { path, file, durationMs, characters, backend }
+POST /read-aloud/api/key    { key }                          ->  { configured }
+GET  /read-aloud/api/output/:file                            ->  mp3
 ```
 
 > **为什么不让浏览器直接调 `dsh-minimax-voice` 的 HTTP 路由？** 那条路由会把请求交给 DSH `connection` 的信任校验，对普通浏览器 `fetch` 返回 401。客户端于是误判"没有后端"并静默失败——0.2.1 修的就是这个。改成宿主内直接调服务后，鉴权、跨域、端口都不再是变量。
@@ -69,14 +69,14 @@ GET  /minimax-autoread/api/output/:file                            ->  mp3
 目前**只提供源码安装**，npm 上还没有发布（`dsh plugin add` 的 npm 形式现在跑不通）。
 
 ```bash
-git clone https://gitee.com/op00007/dsh-minimax-autoread.git
-dsh plugin --profile desktop add ./dsh-minimax-autoread
+git clone https://gitee.com/op00007/dsh-minimax-autoread.git dsh-read-aloud
+dsh plugin --profile desktop add ./dsh-read-aloud
 ```
 
 已经有一份本地副本：
 
 ```bash
-dsh plugin --profile desktop add /绝对路径/dsh-minimax-autoread
+dsh plugin --profile desktop add /绝对路径/dsh-read-aloud
 ```
 
 装完**刷新页面**。客户端插件在页面加载时挂载。
@@ -89,7 +89,7 @@ dsh plugin --profile desktop add /绝对路径/dsh-minimax-autoread
 
 ## 设置项
 
-存在浏览器的 `localStorage`，键名 `dsh.minimax-autoread.settings`。没有轮询、没有上报，也不写宿主配置。
+存在浏览器的 `localStorage`，键名 `dsh.read-aloud.settings`。没有轮询、没有上报，也不写宿主配置。
 
 | 键 | 默认值 | 含义 |
 | --- | --- | --- |
@@ -124,7 +124,7 @@ dsh plugin --profile desktop add /绝对路径/dsh-minimax-autoread
 
 几个关键决定：
 
-- **宿主做后端解析，浏览器不碰鉴权。** 浏览器只调 `/minimax-autoread/api/*`；宿主优先用 `minimaxVoice` 服务，缺席才直连 MiniMax。合成的 mp3 统一拷进本插件输出目录，URL 稳定。
+- **宿主做后端解析，浏览器不碰鉴权。** 浏览器只调 `/read-aloud/api/*`；宿主优先用 `minimaxVoice` 服务，缺席才直连 MiniMax。合成的 mp3 统一拷进本插件输出目录，URL 稳定。
 - **正文按 `messageId` 缓存。** 动作栏槽只给 `messageId`，不给文本，所以按钮必须自己知道"这条消息说了什么"。订阅事件流是唯一可靠的来源。
 - **回放不等于朗读。** 页面加载会重放历史事件；第一次 `pump` 时 `synced` 还是 `false`，只填缓存不出声，避免刚刷新就自己念起来。
 - **重读免费。** 音频文件按 `messageId` 缓存在内存，第二次点击不再发起合成请求——MiniMax 按字符计费，重复合成就是重复扣钱。
@@ -150,10 +150,10 @@ dsh plugin --profile desktop add /绝对路径/dsh-minimax-autoread
 ## 开发
 
 ```
-dsh-minimax-autoread/
+dsh-read-aloud/
 ├── client.js            # 全部逻辑：槽注册、事件订阅、合成与播放
 ├── index.js             # 宿主占位，仅声明插件
-├── cordis.patch.yml     # 插入 minimax-autoread 行
+├── cordis.patch.yml     # 插入 read-aloud 行
 ├── package.json
 ├── icon.svg
 ├── README.md
@@ -162,7 +162,7 @@ dsh-minimax-autoread/
 └── LICENSE
 ```
 
-改完要重新同步：用 `file:` 安装时 pnpm 是**拷贝**而不是软链，改源码不会自动生效。删掉重装，或直接覆盖 `node_modules/dsh-minimax-autoread/` 下的文件后刷新页面。
+改完要重新同步：用 `file:` 安装时 pnpm 是**拷贝**而不是软链，改源码不会自动生效。删掉重装，或直接覆盖 `node_modules/dsh-read-aloud/` 下的文件后刷新页面。
 
 ## License
 
