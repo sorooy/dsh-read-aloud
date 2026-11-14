@@ -1,5 +1,5 @@
 {
-  "name": "dsh-read-aloud",
+  "name": "@sorooy/dsh-read-aloud",
   "version": "0.5.0",
   "description": "给 DeepSeek Harness 加语音朗读：每条回复一个喇叭按钮，点一下就用 MiniMax 音色念出来；支持每轮自动朗读、发消息立即打断。DeepSeek Harness TTS plugin powered by MiniMax.",
   "type": "module",
