@@ -1,6 +1,6 @@
 {
   "name": "@sorooy/dsh-read-aloud",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "给 DeepSeek Harness 加语音朗读：每条回复一个喇叭按钮，点一下就用 MiniMax 音色念出来；支持每轮自动朗读、发消息立即打断。DeepSeek Harness TTS plugin powered by MiniMax.",
   "type": "module",
   "license": "MIT",
@@ -8,7 +8,7 @@
   "homepage": "https://gitee.com/op00007/dsh-minimax-autoread#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://gitee.com/op00007/dsh-minimax-autoread.git"
+    "url": "git+https://github.com/sorooy/dsh-read-aloud.git"
   },
   "bugs": {
     "url": "https://gitee.com/op00007/dsh-minimax-autoread/issues"
